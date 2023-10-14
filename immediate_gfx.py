@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import copy
 import time
-from typing import Collection, Any
-from dataclasses import dataclass
+from collections.abc import Sequence, Generator
+from typing import Collection, Any, TypeVar, cast, Callable
+from dataclasses import dataclass, field
 from contextlib import contextmanager
 
 import pygame
 import numpy as np
+import numpy.typing as npt
 
-def namespace(cls):
+T = TypeVar("T")
+
+def non_optional(x: T | None) -> T:
+    assert x is not None
+    return x
+
+def namespace(cls: type[T]) -> T:
     return dataclass(cls)()
 
 @namespace
@@ -20,34 +28,35 @@ class Context:
     clock: pygame.time.Clock | None = None
     fps: int | None = None
     bg: pygame.Surface | None = None
-    # This dict is never used, but pylint complains if I put None here (bug!)
-    font_cache: dict[tuple[str, int], pygame.font.Font] | None = None
+    font_cache: dict[tuple[str, int], pygame.font.Font] = field(default_factory=lambda: {})
 
-def preload_font(name, size, system_font=False):
-    font_factory = pygame.font.SysFont if system_font else pygame.font.Font
-    Context.font_cache["sys:" * system_font + name, size] = font_factory(name, size)
+def preload_font(name: str, size: int, system_font: bool=False) -> None:
+    if system_font:
+        Context.font_cache["sys:" * system_font + name, size] = pygame.font.SysFont(name, size)
+    else:
+        Context.font_cache["sys:" * system_font + name, size] = pygame.font.Font(name, size)
 
-def get_font(name, size, system_font=False) -> pygame.font.Font:
+def get_font(name: str, size: int, system_font: bool=False) -> pygame.font.Font:
     if ("sys:" * system_font + name, size) not in Context.font_cache:
         preload_font(name, size, system_font)
     return Context.font_cache["sys:" * system_font + name, size]
 
-def set_context(width, height, fps=30):
+def set_context(width: int, height: int, fps: int=30) -> None:
     display = pygame.display.set_mode((width, height))
     Context.display = display
     Context.clock = pygame.time.Clock()
     Context.fps = fps
-    Context.bg = pygame.Surface((width, height), pygame.SRCALPHA).set_alpha()
+    Context.bg = pygame.Surface((width, height), pygame.SRCALPHA).convert_alpha()
     Context.font_cache = {}
 
-def bg_texture():
-    return Context.bg
+def bg_texture() -> pygame.Surface:
+    return cast(pygame.Surface, Context.bg)
 
-def draw_texture(texture: pygame.Surface, pos: Collection, size: float, angle: float,
-                 anchor: Collection = (.5, .5)):
+def draw_texture(texture: pygame.Surface, pos: Collection[int], size: float, angle: float,
+                 anchor: Collection[float] = (.5, .5)) -> None:
     surf = pygame.transform.rotozoom(texture, angle, size)
-    final_pos: np.ndarray = -np.array(anchor) * surf.get_size() + pos * np.array((1, -1)) + np.array(Context.display.get_size()) / 2
-    Context.display.blit(surf, final_pos.astype(np.int32))
+    final_pos: npt.NDArray[np.float_] = -np.array(anchor) * surf.get_size() + pos * np.array((1, -1)) + np.array(non_optional(Context.display).get_size()) / 2
+    non_optional(Context.display).blit(surf, cast(Sequence[int], final_pos.astype(np.int32)))
 
 def rotated_rectangle_extents(width: float, height: float, angle: float) -> pygame.Rect:
     corners = [
@@ -68,18 +77,17 @@ def rotated_rectangle_extents(width: float, height: float, angle: float) -> pyga
     return pygame.Rect(0, 0, maxx-minx, maxy-miny)
 
 @contextmanager
-def frame():
-    Context.clock.tick(Context.fps)
+def frame() -> Generator[None, None, None]:
+    non_optional(Context.clock).tick(non_optional(Context.fps))
+    non_optional(Context.display).fill((255, 255, 255))
     if Context.bg:
-        Context.display.blit(Context.bg, (0, 0))
-    else:
-        Context.display.fill((255, 255, 255))
+        non_optional(Context.display).blit(Context.bg, (0, 0))
     yield
     pygame.display.flip()
 
 
 # Scratch stuff
-def draw_thought_bubble(text: Any, pos: Collection) -> None:
+def draw_thought_bubble(text: str, pos: Sequence[float]) -> None:
     font = get_font("Arial", 14, system_font=True)
 
     split_text = [i + " " for i in str(text).split() if i != ""]
@@ -110,7 +118,7 @@ def draw_thought_bubble(text: Any, pos: Collection) -> None:
     for lineno, line in enumerate(lines):
         bubble.blit(font.render(line, True, (20, 20, 20)), (16, 16 + lineno * 22))
 
-    Context.display.blit(bubble, (
+    non_optional(Context.display).blit(bubble, (
         pos[0] + 240 - bubble.get_width() * 3 // 4,
         -pos[1] + 180 - bubble.get_height() + 7,
     ))
@@ -122,7 +130,7 @@ class TextInputState:
     edit_start: float
     closed: bool
 
-def draw_question_box(state: TextInputState = None, key_events: list[pygame.Event] = None) -> TextInputState:
+def draw_question_box(state: TextInputState | None = None, key_events: list[pygame.event.Event] | None = None) -> TextInputState:
     font = get_font("calibril.ttf", 12)
 
     if state is None:
@@ -165,25 +173,25 @@ def draw_question_box(state: TextInputState = None, key_events: list[pygame.Even
                 elif event.key == pygame.K_RETURN:
                     state.closed = True
 
-    pygame.draw.rect(Context.display, (255, 255, 255), (7, 284, 468, 66), border_radius=10)
-    pygame.draw.rect(Context.display, (210, 210, 210), (7, 284, 468, 66), width=2,
+    pygame.draw.rect(non_optional(Context.display), (255, 255, 255), (7, 284, 468, 66), border_radius=10)
+    pygame.draw.rect(non_optional(Context.display), (210, 210, 210), (7, 284, 468, 66), width=2,
                      border_radius=10)
 
-    pygame.draw.rect(Context.display, (255, 255, 255), (27, 301, 428, 32), border_radius=15)
-    pygame.draw.rect(Context.display, (210, 210, 210), (27, 301, 428, 32), width=1, border_radius=15)
+    pygame.draw.rect(non_optional(Context.display), (255, 255, 255), (27, 301, 428, 32), border_radius=15)
+    pygame.draw.rect(non_optional(Context.display), (210, 210, 210), (27, 301, 428, 32), width=1, border_radius=15)
 
-    pygame.draw.circle(Context.display, (135, 80, 195), (438, 317), 13)
+    pygame.draw.circle(non_optional(Context.display), (135, 80, 195), (438, 317), 13)
 
-    pygame.draw.line(Context.display, (255, 255, 255), (432, 322), (429, 318), 5)
-    pygame.draw.line(Context.display, (255, 255, 255), (433, 322), (441, 314), 5)
-    pygame.draw.circle(Context.display, (255, 255, 255), (429, 318), 2)
-    pygame.draw.circle(Context.display, (255, 255, 255), (433, 323), 2)
+    pygame.draw.line(non_optional(Context.display), (255, 255, 255), (432, 322), (429, 318), 5)
+    pygame.draw.line(non_optional(Context.display), (255, 255, 255), (433, 322), (441, 314), 5)
+    pygame.draw.circle(non_optional(Context.display), (255, 255, 255), (429, 318), 2)
+    pygame.draw.circle(non_optional(Context.display), (255, 255, 255), (433, 323), 2)
 
-    pygame.draw.circle(Context.display, (255, 255, 255), (442, 314), 2)
+    pygame.draw.circle(non_optional(Context.display), (255, 255, 255), (442, 314), 2)
 
-    Context.display.blit(font.render(state.text, True, (50, 50, 50)), (38, 311))
+    non_optional(Context.display).blit(font.render(state.text, True, (50, 50, 50)), (38, 311))
     if state.cursor_location is not None and (time.perf_counter() - state.edit_start) % 2 <= 1:
         width = font.size(state.text[:state.cursor_location])[0]
-        pygame.draw.line(Context.display, (0, 0, 0), (38 + width, 311), (38 + width, 321))
+        pygame.draw.line(non_optional(Context.display), (0, 0, 0), (38 + width, 311), (38 + width, 321))
 
     return state
