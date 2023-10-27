@@ -285,6 +285,9 @@ class VariableReference:
     target: Target
     name: str
 
+    def clone(self) -> VariableReference:
+        return VariableReference(self.target, self.name)
+
     def set_target(self, target: Target) -> None:
         self.target = target
 
@@ -323,6 +326,9 @@ class Block:
         # Attributes only to help with parsing the JSON data
         self.next_block = None
         self.parent_block = None
+
+    def clone(self) -> Block:
+        return Block(self.shadow, self.target, self.opcode, cast(Any, {k: v.clone() if isinstance(v, (BlockList, VariableReference)) else v for k, v in self.arguments.items()}), self.fields)
 
     def set_target(self, target: Target) -> None:
         self.target = target
@@ -512,10 +518,13 @@ def op_control_create_clone_of(target: Target, CLONE_OPTION: str) -> None:
     to_clone = targets[0]
 
     def copy_block(j: Block) -> Block:
-        return Block(j.shadow, None, j.opcode, cast(Any, {k: copy_blocklist(v) if isinstance(v, BlockList) else (VariableReference(None, v.name) if isinstance(v, VariableReference) else v) for k, v in j.arguments.items()}), j.fields)
+        return Block(j.shadow, None, j.opcode, cast(Any, {k: copy_blocklist(v) if isinstance(v, BlockList) else (VariableReference(v.target, v.name) if isinstance(v, VariableReference) else v) for k, v in j.arguments.items()}), j.fields)
 
     def copy_blocklist(i: BlockList) -> BlockList:
-        return BlockList(None, [copy_block(j) for j in i.blocks])
+        l = BlockList(None, [copy_block(j) for j in i.blocks])
+        l.current_block_idx = i.current_block_idx
+        l.is_in_progress = i.is_in_progress
+        return l
 
     blocks = [copy_blocklist(i) for i in to_clone.blocks]
     # breakpoint()
@@ -709,6 +718,15 @@ class BlockList:
     blocks: list[Block]
 
     is_in_progress: bool = field(init=False, default=False)
+    current_block_idx: int = field(init=False, default=-1)
+    was_cloned: bool = field(init=False, default=False)
+
+    def clone(self) -> BlockList:
+        l = BlockList(None, [block.clone() for block in self.blocks])
+        l.current_block_idx = self.current_block_idx
+        l.is_in_progress = self.is_in_progress
+        l.was_cloned = True
+        return l
 
     def __repr__(self) -> str:
         return f"BlockList({self.blocks})"
@@ -734,14 +752,18 @@ class BlockList:
         raise NotImplementedError(self.blocks[0].opcode)
 
     def evaluate(self) -> Generator[Any, Any, Any]:
-        if self.is_in_progress:
+        if self.is_in_progress and not self.was_cloned:
             return None
+        if not self.was_cloned:
+            self.current_block_idx = 0
         self.is_in_progress = True
         last = None
         try:
-            for block in self.blocks:
+            for block in self.blocks[self.current_block_idx:]:
                 last = yield from cast(Generator[Any, Any, Any], block.evaluate())
+                self.current_block_idx += 1
         finally:
+            self.was_cloned = False
             self.is_in_progress = False
         return last
 

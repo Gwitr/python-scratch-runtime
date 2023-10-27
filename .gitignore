@@ -1,8 +1,7 @@
 __pycache__
 calibril.ttf
-*.sb3
 .pylintrc
 .vscode
 defusedxml
 .mypy_cache
-
+VERSION_CONTROL.sb3
