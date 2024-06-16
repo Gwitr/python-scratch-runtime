@@ -81,17 +81,17 @@ def op_looks_hide(sprite: Sprite) -> None:
 
 @Block.register_evaluator("looks_thinkforsecs")
 def op_looks_thinkforsecs(sprite: Sprite, MESSAGE: str, SECS: float) -> Generator[Any, Any, None]:
-    # TODO: Don't hard-code FPS; also use an event instead of this
+    # TODO: Use an event instead of this
     sprite.bubble = MESSAGE
-    for _ in range(int(30 * SECS)):
+    for _ in range(int(IM.window_fps * SECS)):
         yield []
     sprite.bubble = None
 
 @Block.register_evaluator("looks_sayforsecs")
 def op_looks_sayforsecs(sprite: Sprite, MESSAGE: str, SECS: float) -> Generator[Any, Any, None]:
-    # TODO: Use another type of bubble; also don't hardcode FPS
+    # TODO: Use another type of bubble
     sprite.bubble = MESSAGE
-    for _ in range(int(30 * SECS)):
+    for _ in range(int(IM.window_fps * SECS)):
         yield []
     sprite.bubble = None
 
@@ -127,8 +127,8 @@ def op_control_repeat_until(_target: Target, CONDITION: Block.Unevaluated[bool],
 
 @Block.register_evaluator("control_wait")
 def op_control_wait(_target: Target, DURATION: float) -> Generator[Any, Any, None]:
-    # TODO: Don't hard-code FPS; also use an event instead of this
-    for _ in range(int(30 * DURATION)):
+    # TODO: Use an event instead of this
+    for _ in range(int(IM.window_fps * DURATION)):
         yield []
 
 @Block.register_evaluator("control_create_clone_of")
@@ -167,24 +167,15 @@ def op_control_create_clone_of_menu(_target: Target, *, CLONE_OPTION: str) -> st
 
 @Block.register_evaluator("sensing_touchingobject")
 def op_sensing_touchingobject(sprite: Sprite, TOUCHINGOBJECTMENU: str) -> bool:
-    # TODO: Don't hard-code screen size
-
-    if not sprite.visible:
+    if math.isnan(sprite.xpos) or math.isnan(sprite.ypos) or not sprite.visible:
         return False
 
     if TOUCHINGOBJECTMENU == "_mouse_":
         mousex, mousey = IM.mouse_pos()
-        # bbox = sprite.bounding_box()
-        bbox = IM.rotated_rectangle_extents(
-            sprite.width * sprite.scale / 100,
-            sprite.height * sprite.scale / 100,
-            sprite.angle
-        )
-        result = IM.overlap_masks(
-            sprite.mask,
-            IM.load_mask(io.BytesIO(WHITE_1x1)),
-            (int(mousex - 240 - sprite.xpos + bbox[2] / 2),
-                int(IM.window_height - mousey - 180 - sprite.ypos + bbox[3] / 2))
+        mask = sprite.mask
+        result = mask.overlap(
+            IM.Mask.from_file(io.BytesIO(WHITE_1x1)),
+            (int(mask.w/2 + mousex - IM.window_width / 2 - sprite.xpos), int(mask.h/2-(IM.window_height / 2 - mousey - sprite.ypos)))
         ) is not None
         return result
 
@@ -194,11 +185,22 @@ def op_sensing_touchingobject(sprite: Sprite, TOUCHINGOBJECTMENU: str) -> bool:
             sprite.height * sprite.scale / 100,
             sprite.angle
         )
-        return (sprite.xpos + bbox[2] / 2 >= 240 or sprite.xpos - bbox[2] / 2 <= -240 or
-                sprite.ypos + bbox[3] / 2 >= 180 or sprite.ypos - bbox[3] / 2 <= -180)
+        return (sprite.xpos + bbox[2] / 2 >= IM.window_width / 2 or sprite.xpos - bbox[2] / 2 <= -IM.window_width / 2 or
+                sprite.ypos + bbox[3] / 2 >= IM.window_height / 2 or sprite.ypos - bbox[3] / 2 <= -IM.window_height / 2)
 
     if len(targets := [i for i in sprite.project.targets if i.name == TOUCHINGOBJECTMENU and isinstance(i, Sprite)]) > 0:
-        return any(target.visible and IM.overlap_masks(sprite.mask, target.mask, (target.xpos - sprite.xpos, target.ypos - sprite.ypos)) is not None for target in targets)
+        for target in targets:
+            if not target.visible:
+                continue
+            if math.isnan(target.xpos) or math.isnan(target.ypos):
+                continue
+            mask1 = sprite.mask
+            mask2 = target.mask
+            xoffs = target.xpos - sprite.xpos + (mask1.w - mask2.w) / 2
+            yoffs = target.ypos - sprite.ypos + (mask1.h - mask2.h) / 2
+            if mask1.overlap(mask2, (xoffs, yoffs)) is not None:
+                return True
+        return False
 
     print(f"Note: unknown touching object setting {TOUCHINGOBJECTMENU}")
     return False

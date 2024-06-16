@@ -1,9 +1,11 @@
 # pylint: disable=missing-class-docstring,missing-function-docstring,missing-module-docstring
 
+from __future__ import annotations
+
 import ctypes
-from typing import Collection, IO
 from dataclasses import dataclass
 from contextlib import contextmanager
+from typing import Collection, IO, Self
 from collections.abc import Sequence, Generator
 
 libc = ctypes.CDLL("libc.so.6")
@@ -66,8 +68,11 @@ _IM.im_get_key_events.restype = ctypes.POINTER(im_key_event)
 _IM.im_free_texture.argtypes = (ctypes.c_void_p,)
 _IM.im_free_texture.restype = None
 
-_IM.im_rotozoom.argtypes = (ctypes.c_void_p, ctypes.c_double, ctypes.c_double, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int))
-_IM.im_rotozoom.restype = ctypes.c_void_p
+_IM.im_tex_to_mask.argtypes = (ctypes.c_void_p, ctypes.c_double, ctypes.c_double, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int))
+_IM.im_tex_to_mask.restype = ctypes.POINTER(ctypes.c_uint64)
+
+_IM.im_empty_mask.argtypes = (ctypes.c_int, ctypes.c_int)
+_IM.im_empty_mask.restype = ctypes.POINTER(ctypes.c_uint64)
 
 @dataclass(slots=True, frozen=True)
 class KeyEvent:
@@ -78,16 +83,27 @@ class KeyEvent:
 class FrameInfo:
     key_events: list[KeyEvent]
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class Texture:
     handle: ctypes.c_void_p
     w: int
     h: int
 
+    @classmethod
+    def from_file(cls, file: IO[bytes]) -> Self:
+        data = file.read()
+        w = ctypes.c_int()
+        h = ctypes.c_int()
+        handle = _IM.im_load_texture(data, len(data), ctypes.byref(w), ctypes.byref(h))
+        return cls(ctypes.c_void_p(handle), w.value, h.value)
+
+    def draw(self, pos: Collection[int], size: float, angle: float, anchor: Collection[float] = (.5, .5)) -> None:
+        _IM.im_draw_texture(self.handle, pos[0], pos[1], size, angle, anchor[0], anchor[1])
+
     def __del__(self):
         _IM.im_free_texture(self.handle)
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class Mask:
     handle: ctypes.POINTER(ctypes.c_uint64)
     w: int
@@ -95,6 +111,32 @@ class Mask:
 
     def __del__(self):
         libc.free(self.handle)
+
+    @classmethod
+    def empty(cls, width: int, height: int, default: bool) -> Self:
+        return cls(_IM.im_empty_mask(width, height, default), width, height)
+
+    @classmethod
+    def from_file(cls, file: IO[bytes]) -> Self:
+        data = file.read()
+        w = ctypes.c_int()
+        h = ctypes.c_int()
+        handle = _IM.im_load_mask(data, len(data), ctypes.byref(w), ctypes.byref(h))
+        return cls(handle, w.value, h.value)
+
+    @classmethod
+    def from_texture(cls, tex: Texture, angle: float, scale: float) -> Self:
+        w = ctypes.c_int()
+        h = ctypes.c_int()
+        handle = _IM.im_tex_to_mask(tex.handle, angle, scale, ctypes.byref(w), ctypes.byref(h))
+        return cls(handle, w.value, h.value)
+
+    def overlap(self, mask2: Mask, offs: tuple[int, int]) -> tuple[int, int] | None:
+        x = ctypes.c_int()
+        y = ctypes.c_int()
+        if _IM.im_fast_overlap(self.handle, self.w, self.h, mask2.handle, mask2.w, mask2.h, int(offs[0]), int(offs[1]), ctypes.byref(x), ctypes.byref(y)):
+            return (x.value, y.value)
+        return None
 
 @dataclass(slots=True)
 class Rect:
@@ -109,50 +151,18 @@ class Rect:
     def __getitem__(self, idx):
         return (self.x, self.y, self.width, self.height)[idx]
 
-    def __setitem__(self, idx, value):
-        setattr(self, "xywh"[idx].name, value)
-
-def rotozoom(tex: Texture, angle: float, scale: float):
-    raise RuntimeError("don't use this pls")
-    w = ctypes.c_int()
-    h = ctypes.c_int()
-    handle = _IM.im_rotozoom(tex.handle, angle, scale, ctypes.byref(w), ctypes.byref(h))
-    return Texture(ctypes.c_void_p(handle), w.value, h.value)
-
-def load_mask(file: IO[bytes]) -> Mask:
-    data = file.read()
-    w = ctypes.c_int()
-    h = ctypes.c_int()
-    handle = _IM.im_load_mask(data, len(data), ctypes.byref(w), ctypes.byref(h))
-    return Mask(handle, w.value, h.value)
-
-def overlap_masks(mask1: Mask, mask2: Mask, offs: tuple[int, int]) -> tuple[int, int] | None:
-    x = ctypes.c_int()
-    y = ctypes.c_int()
-    if _IM.im_fast_overlap(mask1.handle, mask1.w, mask1.h, mask2.handle, mask2.w, mask2.h, int(offs[0]), int(offs[1]), ctypes.byref(x), ctypes.byref(y)):
-        return (x.value, y.value)
-    return None
-
 def init() -> None:
     _IM.im_init()
 
 window_width: int = 0
 window_height: int = 0
-def set_context(width: int, height: int, fps: int=30) -> None:
-    global window_width, window_height  # pylint: disable=global-statement
+window_fps: int = 0
+def set_context(width: int, height: int, fps: int = 30) -> None:
+    global window_width, window_height, window_fps  # pylint: disable=global-statement
     window_width = width
     window_height = height
+    window_fps = fps
     _IM.im_set_context(width, height, fps)
-
-def load_texture(file: IO[bytes]) -> Texture:
-    data = file.read()
-    w = ctypes.c_int()
-    h = ctypes.c_int()
-    handle = _IM.im_load_texture(data, len(data), ctypes.byref(w), ctypes.byref(h))
-    return Texture(ctypes.c_void_p(handle), w.value, h.value)
-
-def draw_texture(texture: Texture, pos: Collection[int], size: float, angle: float, anchor: Collection[float] = (.5, .5)) -> None:
-    _IM.im_draw_texture(texture.handle, pos[0], pos[1], size, angle, anchor[0], anchor[1])
 
 def rotated_rectangle_extents(width: float, height: float, angle: float) -> Rect:
     w = ctypes.c_int()
@@ -175,7 +185,7 @@ def frame() -> Generator[FrameInfo, None, None]:
     _IM.im_begin_frame()
     n = ctypes.c_size_t()
     ke_raw = _IM.im_get_key_events(ctypes.byref(n))
-    key_events = [KeyEvent(i.keyname.decode("ascii"), bool(i.held)) for i in ke_raw[:n.value]]
+    key_events = [KeyEvent(i.keyname.decode("ascii"), bool(i.held)) for i in ke_raw[:n.value] if i.keyname is not None]
     for event in key_events:
         key_states[event.key] = event.held
     try:

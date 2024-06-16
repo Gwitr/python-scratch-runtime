@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import io
 import abc
 import enum
-import base64
 import zipfile
 from typing import Any
 from dataclasses import dataclass, field
@@ -87,17 +85,7 @@ class Stage(Target):
 
     @property
     def mask(self) -> IM.mask.Mask:
-        # TODO: Don't hard-code screen size
-        png = base64.b64decode(
-            b"iVBORw0KGgoAAAANSUhEUgAAAeAAAAFoAQAAAACnTBWNAAAAIGNIUk0AAHomAACAhAAA+gAAAIDo"
-            b"AAB1MAAA6mAAADqYAAAXcJy6UTwAAAACYktHRAAB3YoTpAAAAAd0SU1FB+gGEBEEHmodoFAAAABa"
-            b"SURBVHja7csxDQAADAOg+jfditi3wE96EFmWZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmW"
-            b"ZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmW5f95NBIQjXdSLDMAAAAldEVYdGRhdGU6Y3Jl"
-            b"YXRlADIwMjQtMDYtMTZUMTc6MDQ6MzArMDA6MDB+zhzxAAAAJXRFWHRkYXRlOm1vZGlmeQAyMDI0"
-            b"LTA2LTE2VDE3OjA0OjMwKzAwOjAwD5OkTQAAACh0RVh0ZGF0ZTp0aW1lc3RhbXAAMjAyNC0wNi0x"
-            b"NlQxNzowNDozMCswMDowMFiGhZIAAAAASUVORK5CYII="
-        )
-        return IM.load_mask(io.BytesIO(png))
+        return IM.Mask.empty(IM.window_width, IM.window_height, True)
 
     def draw(self) -> None:
         self.costume.draw((0, 0))
@@ -127,20 +115,7 @@ class Sprite(Target):
 
     @property
     def mask(self) -> IM.Mask:
-        # TODO: IMPLEMENT!!!!
-        # return pygame.mask.from_surface(
-            # self.costume.render(angle=self.angle, scale=self.scale / 100)
-        # )
-        png = base64.b64decode(
-            b"iVBORw0KGgoAAAANSUhEUgAAAeAAAAFoAQAAAACnTBWNAAAAIGNIUk0AAHomAACAhAAA+gAAAIDo"
-            b"AAB1MAAA6mAAADqYAAAXcJy6UTwAAAACYktHRAAB3YoTpAAAAAd0SU1FB+gGEBEEHmodoFAAAABa"
-            b"SURBVHja7csxDQAADAOg+jfditi3wE96EFmWZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmW"
-            b"ZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmWZVmW5f95NBIQjXdSLDMAAAAldEVYdGRhdGU6Y3Jl"
-            b"YXRlADIwMjQtMDYtMTZUMTc6MDQ6MzArMDA6MDB+zhzxAAAAJXRFWHRkYXRlOm1vZGlmeQAyMDI0"
-            b"LTA2LTE2VDE3OjA0OjMwKzAwOjAwD5OkTQAAACh0RVh0ZGF0ZTp0aW1lc3RhbXAAMjAyNC0wNi0x"
-            b"NlQxNzowNDozMCswMDowMFiGhZIAAAAASUVORK5CYII="
-        )
-        return IM.load_mask(io.BytesIO(png))
+        return IM.Mask.from_texture(self.costume.tex, self.angle, self.scale / 100 / self.costume.SCALE)
 
     def draw(self) -> None:
         if not self.visible or self.xpos != self.xpos or abs(self.xpos) == float("inf") or self.ypos != self.ypos or abs(self.ypos) == float("inf"):

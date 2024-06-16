@@ -12,8 +12,8 @@ from project import Project
 from block import BlockList
 from utils import StopAll, StopThisScript, ExtraEvents, BlockEvent, FlagClickEvent, KeyPressedEvent, CloneCreatedEvent, BroadcastEvent
 
-import faulthandler
-faulthandler.enable()
+# import faulthandler
+# faulthandler.enable()
 
 T = TypeVar("T")
 
@@ -25,7 +25,7 @@ def main() -> None:
     IM.init()
     IM.set_context(480, 360, 30)
 
-    with zipfile.PyZipFile("test.sb3") as sb3:  # test.sb3
+    with zipfile.PyZipFile("Project(5).sb3") as sb3:  # test.sb3
         project = Project.load(sb3)
 
     scripts: dict[type[BlockEvent], list[tuple[BlockEvent, BlockList]]] = {

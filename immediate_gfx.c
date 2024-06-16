@@ -1,10 +1,10 @@
 // gcc -Wall -Wextra -pedantic -shared -fPIE -fPIC -o IM.so immediate_gfx.c -lSDL2 -lSDL2_ttf -lSDL2_image
-
 #include "immediate_gfx.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #include <time.h>
 #include <unistd.h>
@@ -15,36 +15,37 @@
 
 #define MAX_KEY_EVENTS_PER_FRAME 32
 
-// SDL_MAIN_HANDLED, SDL_SetMainReady
-
 const struct { int sym; const char *name; } KEYCODE_TO_NAME[] = {
     { SDLK_q, "q" }, { SDLK_w, "w" }, { SDLK_e, "e" }, { SDLK_r, "r" }, { SDLK_t, "t" }, { SDLK_y, "y" }, { SDLK_u, "u" }, { SDLK_i, "i" }, { SDLK_o, "o" },
     { SDLK_p, "p" }, { SDLK_a, "a" }, { SDLK_s, "s" }, { SDLK_d, "d" }, { SDLK_f, "f" }, { SDLK_g, "g" }, { SDLK_h, "h" }, { SDLK_j, "j" }, { SDLK_k, "k" },
     { SDLK_l, "l" }, { SDLK_z, "z" }, { SDLK_x, "x" }, { SDLK_c, "c" }, { SDLK_v, "v" }, { SDLK_b, "b" }, { SDLK_n, "n" }, { SDLK_m, "m" }, { SDLK_1, "1" },
     { SDLK_2, "2" }, { SDLK_3, "3" }, { SDLK_4, "4" }, { SDLK_5, "5" }, { SDLK_6, "6" }, { SDLK_7, "7" }, { SDLK_8, "8" }, { SDLK_9, "9" }, { SDLK_0, "0" },
-    { SDLK_SPACE, "space" }, { SDLK_LEFT, "left arrow" }, { SDLK_RIGHT, "right arrow" }, { SDLK_UP, "up arrow" }, { SDLK_DOWN, "down arrow" }
+    { SDLK_SPACE, "space" }, { SDLK_LEFT, "left arrow" }, { SDLK_RIGHT, "right arrow" }, { SDLK_UP, "up arrow" }, { SDLK_DOWN, "down arrow" },
+    { SDLK_UNKNOWN, NULL }
 };
 
 static TTF_Font *bubble_font, *input_font;
-static int window_width, window_height, window_fps, window_running;
+static int window_width, window_height, window_fps, window_running, initialized;
 static struct timespec last_frame;
 static struct im_key_event key_events[MAX_KEY_EVENTS_PER_FRAME];
 static unsigned int n_key_events;
 static SDL_Window *window;
-static SDL_Renderer *renderer;
+SDL_Renderer *renderer;
 
 void im_init(void)
 {
     // Create window, create renderer, load fonts
-    SDL_SetMainReady();
+    if (!(initialized++)) {
+        SDL_SetMainReady();
 
-    TTF_Init();
-    SDL_Init(SDL_INIT_VIDEO);
-    if (SDL_CreateWindowAndRenderer(1, 1, SDL_WINDOW_HIDDEN, &window, &renderer))
-        abort();
-    bubble_font = TTF_OpenFont("/usr/share/fonts/TTF/liberation/LiberationSans-Regular.ttf", 14);  // TODO: Don't hardcode this
-    if (!bubble_font)
-        abort();
+        TTF_Init();
+        SDL_Init(SDL_INIT_VIDEO);
+        if (SDL_CreateWindowAndRenderer(1, 1, SDL_WINDOW_HIDDEN, &window, &renderer))
+            abort();
+        bubble_font = TTF_OpenFont("/usr/share/fonts/TTF/liberation/LiberationSans-Regular.ttf", 14);  // TODO: Don't hardcode this
+        if (!bubble_font)
+            abort();
+    }
     // input_font = TTF_OpenFont("calibril.ttf", 12);
     // if (!input_font)
         // abort();
@@ -52,13 +53,15 @@ void im_init(void)
 
 void im_quit(void)
 {
-    TTF_CloseFont(bubble_font);
-    TTF_CloseFont(input_font);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    TTF_Quit();
-    IMG_Quit();
-    SDL_Quit();
+    if (!(--initialized)) {
+        TTF_CloseFont(bubble_font);
+        TTF_CloseFont(input_font);
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        TTF_Quit();
+        IMG_Quit();
+        SDL_Quit();
+    }
 }
 
 void im_set_context(int width, int height, int fps)
@@ -93,7 +96,7 @@ void *im_load_texture(const char *data, size_t len, int *restrict w, int *restri
     return tex;
 }
 
-uint64_t *im_load_mask(const char *data, size_t len, int *restrict w, int *restrict h)
+uint8_t *im_load_mask(const char *data, size_t len, int *restrict w, int *restrict h)
 {
     SDL_RWops *src = SDL_RWFromMem((void*)data, len);
     SDL_Surface *surf = IMG_Load_RW(src, 1);
@@ -103,13 +106,15 @@ uint64_t *im_load_mask(const char *data, size_t len, int *restrict w, int *restr
         *w = surf->w;
     if (h)
         *h = surf->h;
-    surf = SDL_ConvertSurfaceFormat(surf, SDL_PIXELFORMAT_RGBA32, 0);
-    if (!surf)
+    SDL_Surface *surf2 = SDL_ConvertSurfaceFormat(surf, SDL_PIXELFORMAT_RGBA32, 0);
+    if (!surf2)
         abort();
+    SDL_FreeSurface(surf);
+    surf = surf2;
     SDL_LockSurface(surf);
-    uint64_t *mask = calloc((surf->w * surf->h / 8 / sizeof(uint64_t) + 1), sizeof(uint64_t));
+    uint8_t *mask = calloc((surf->w * surf->h / 8 / sizeof(uint8_t) + 1), sizeof(uint8_t));
     for (int pixelidx = 0; pixelidx < surf->w * surf->h; ++pixelidx)
-        mask[pixelidx >> 6] |= (((uint8_t*)surf->pixels)[pixelidx*4+3] > 127) << (pixelidx & 63);
+        mask[pixelidx >> 3] |= (((uint8_t*)surf->pixels)[pixelidx*4+3] > 127) << (pixelidx % 8);
     SDL_UnlockSurface(surf);
     SDL_FreeSurface(surf);
     return mask;
@@ -146,10 +151,11 @@ void im_draw_texture(void *texture, int x, int y, double size, double angle, dou
 
 void im_free_texture(void *texture)
 {
-    SDL_DestroyTexture((SDL_Texture*)texture);
+    if (initialized)
+        SDL_DestroyTexture((SDL_Texture*)texture);
 }
 
-void *im_rotozoom(void *texture, double angle, double scale, int *restrict wout, int *restrict hout)
+uint8_t *im_tex_to_mask(void *texture, double angle, double scale, int *restrict wout, int *restrict hout)
 {
     int w, h, dstw, dsth;
     SDL_QueryTexture(texture, NULL, NULL, &w, &h);
@@ -158,16 +164,37 @@ void *im_rotozoom(void *texture, double angle, double scale, int *restrict wout,
         *wout = dstw;
     if (hout)
         *hout = dsth;
+    if (dstw == 0 || dsth == 0)
+        return NULL;
 
-    SDL_Texture *result = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, dstw, dsth);
+    SDL_Texture *result = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, dstw, dsth);
+    if (!result)
+        abort();
     SDL_SetTextureBlendMode(result, SDL_BLENDMODE_NONE);
     SDL_SetRenderTarget(renderer, result);
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
 	SDL_RenderClear(renderer);
     SDL_Rect rect = { (int)(dstw-w*scale)/2, (int)(dsth-h*scale)/2, (int)(w*scale), (int)(h*scale) };
 	SDL_RenderCopyEx(renderer, (SDL_Texture*)texture, NULL, &rect, angle - 90.0, NULL, SDL_FLIP_NONE);
-	SDL_SetRenderTarget(renderer, NULL);
-    return result;
+    rect = (SDL_Rect){ 0, 0, dstw, dsth };
+    uint8_t *pxs = malloc(dstw * dsth * sizeof(uint32_t));
+    if (!pxs)
+        abort();
+
+    if (SDL_RenderReadPixels(renderer, &rect, SDL_PIXELFORMAT_RGBA32, pxs, dstw * sizeof(uint32_t)))
+        abort();  // slow?
+
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(result);
+
+    uint8_t *mask = calloc(dstw * dsth / 8 + 1, 1);
+    if (!mask)
+        abort();
+    for (int pixelidx = 0; pixelidx < dstw * dsth; ++pixelidx)
+        mask[pixelidx >> 3] |= (pxs[pixelidx*4+3] > 127) << (pixelidx % 8);
+    free(pxs);
+
+    return mask;
 }
 
 void im_begin_frame(void)
@@ -418,16 +445,21 @@ void im_draw_thought_bubble(const char *input_text, int x, int y)
     }
 }
 
-int im_fast_overlap(const uint64_t *restrict mask1, int w1, int h1, const uint64_t *restrict mask2, int w2, int h2, int xoffs, int yoffs, int *restrict xout, int *restrict yout)
+int im_fast_overlap(const uint8_t *restrict mask1, int w1, int h1, const uint8_t *restrict mask2, int w2, int h2, int xoffs, int yoffs, int *restrict xout, int *restrict yout)
 {
-    // TODO: Faster implementation pls; ideally, we'd be checking 64 bits at a time
-
+    // TODO: Faster implementation pls; ideally, we'd be checking 64 (or maybe even 256) bits at a time
+    // return 0;
     int maxx1 = 0 > xoffs ? 0 : xoffs, maxy1 = 0 > yoffs ? 0 : yoffs;
     int minx2 = w1 < xoffs+w2 ? w1 : xoffs+w2, miny2 = h1 < yoffs+h2 ? h1 : yoffs+h2;
+
+    // SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+    // SDL_Rect rect = { maxx1, maxy1, minx2-maxx1, miny2-maxy1 };
+    // SDL_RenderDrawRect(renderer, &rect);
+
     for (int y = maxy1; y < miny2; ++y) {
         for (int x = maxx1; x < minx2; ++x) {
-            int idx1 = y*w1 + x, idx2 = (y+yoffs)*w2 + (x+xoffs);
-            if ((mask1[idx1 >> 6] >> (idx1 & 63)) & (mask2[idx2 >> 6] >> (idx2 & 63)) & 1) {
+            int idx1 = y*w1 + x, idx2 = (y-yoffs)*w2 + (x-xoffs);
+            if ((mask1[idx1 >> 3] >> (idx1 % 8)) & (mask2[idx2 >> 3] >> (idx2 % 8)) & 1) {
                 if (xout)
                     *xout = x;
                 if (yout)
@@ -437,4 +469,13 @@ int im_fast_overlap(const uint64_t *restrict mask1, int w1, int h1, const uint64
         }
     }
     return 0;
+}
+
+uint8_t *im_empty_mask(int width, int height, int dft)
+{
+    uint8_t *mask = calloc(width * height / 8 + 1, 1);
+    if (!mask)
+        abort();
+    memset(mask, dft ? 255 : 0, width * height / 8 + 1);
+    return mask;
 }

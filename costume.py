@@ -22,27 +22,29 @@ def non_optional(x: T | None) -> T:
 class Costume(abc.ABC):
     _SUBCLASSES = None
     FMT: ClassVar[str | None] = None
+    SCALE: ClassVar[float]
 
     name: str
     md5: str | None
     origin: tuple[float, float]
 
-    @property
-    @abc.abstractmethod
-    def width(self) -> int: ...
+    tex: IM.Texture
 
     @property
-    @abc.abstractmethod
-    def height(self) -> int: ...
+    def width(self) -> int:
+        return self.tex.w / self.SCALE
 
-    @abc.abstractmethod
+    @property
+    def height(self) -> int:
+        return self.tex.h / self.SCALE
+
     def draw(self, position: Sequence[int], *, angle: float=90.0, scale: float=1.0, pixel: float=0.0,
              mosaic: float=0.0, ghost: float=0.0) -> None:
-        pass
+        if pixel or mosaic or ghost:
+            raise NotImplementedError("pixel/mosaic/ghost effects")
 
-    @classmethod
-    @abc.abstractmethod
-    def _load(cls, file: IO[bytes] | None, name: str, md5: str, origin: Sequence[float]) -> Costume: ...
+        # TODO: Make use of the rotation origin
+        self.tex.draw(position, scale / self.SCALE, angle)
 
     @classmethod
     def _get_subclasses(cls) -> set[type[Costume]]:
@@ -75,36 +77,22 @@ class Costume(abc.ABC):
                 (data["rotationCenterX"], data["rotationCenterY"])
             )
 
-SCALE = 8  # How many times larger are SVGs rendered for scaling purposes
+    @classmethod
+    @abc.abstractmethod
+    def _load(cls, file: IO[bytes] | None, name: str, md5: str, origin: Sequence[float]) -> Costume: ...
 
 WHITE_1x1 = base64.b64decode(b"Qk2OAAAAAAAAAIoAAAB8AAAAAQAAAAEAAAABABgAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAD/AAD/AAD/AAAAAAAA/0JHUnOPwvUoUbgeFR6F6wEzMzMTZmZmJmZmZgaZmZkJPQrXAyhcjzIAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAA////AA==")
 
 @dataclass
 class SvgCostume(Costume):
     FMT = "svg"
-
-    img: IM.Texture
-
-    @property
-    def width(self) -> int:
-        return self.img.w
-
-    @property
-    def height(self) -> int:
-        return self.img.h
-
-    def draw(self, position: Sequence[int], *, angle: float=90.0, scale: float=1.0, pixel: float=0.0, mosaic: float=0.0, ghost: float=0.0) -> IM.Texture:
-        if pixel or mosaic or ghost:
-            raise NotImplementedError("pixel/mosaic/ghost effects")
-
-        # TODO: Make use of the rotation origin
-        IM.draw_texture(self.img, position, scale / 8, angle)
+    SCALE = 8  # How many times larger are SVGs rendered for scaling purposes
 
     @classmethod
     def _load(cls, file: IO[bytes] | None, name: str, md5: str, origin: Sequence[float]) -> SvgCostume:
         if file is None:
-            return cls(name, None, cast(tuple[float, float], origin), IM.load_texture(io.BytesIO(WHITE_1x1)))
+            return cls(name, None, cast(tuple[float, float], origin), IM.Texture.from_file(io.BytesIO(WHITE_1x1)))
 
-        img = pyvips.Image.new_from_buffer(file.read(), "", dpi=int(72 * SCALE))
-        img = IM.load_texture(io.BytesIO(img.write_to_buffer(".png")))
+        img = pyvips.Image.new_from_buffer(file.read(), "", dpi=int(72 * cls.SCALE))
+        img = IM.Texture.from_file(io.BytesIO(img.write_to_buffer(".png")))
         return cls(name, md5, cast(tuple[float, float], origin), img)

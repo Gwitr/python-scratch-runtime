@@ -5,3 +5,8 @@ calibril.ttf
 defusedxml
 .mypy_cache
 VERSION_CONTROL.sb3
+test.c
+old_immediate_gfx.py
+*.so
+a.out
+
