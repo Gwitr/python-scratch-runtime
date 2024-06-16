@@ -83,42 +83,28 @@ WHITE_1x1 = base64.b64decode(b"Qk2OAAAAAAAAAIoAAAB8AAAAAQAAAAEAAAABABgAAAAAAAQAA
 class SvgCostume(Costume):
     FMT = "svg"
 
-    # SVG_SCALES = 0.25, 0.5, 1.0, 2.0, 4.0
-    SVG_SCALES = 0.5, 1.0, 2.0
-    NEUTRAL_SCALE = 2
-
-    scaled_surfaces: list[IM.Texture]
+    img: IM.Texture
 
     @property
     def width(self) -> int:
-        return self.scaled_surfaces[self.NEUTRAL_SCALE].w
+        return self.img.w
 
     @property
     def height(self) -> int:
-        return self.scaled_surfaces[self.NEUTRAL_SCALE].h
+        return self.img.h
 
     def draw(self, position: Sequence[int], *, angle: float=90.0, scale: float=1.0, pixel: float=0.0, mosaic: float=0.0, ghost: float=0.0) -> IM.Texture:
         if pixel or mosaic or ghost:
             raise NotImplementedError("pixel/mosaic/ghost effects")
-        surface_idx, base_scale = min(
-            enumerate(self.SVG_SCALES),
-            key=lambda x: float("inf") if self.scaled_surfaces[x[0]] is None else abs(scale - x[1])
-        )
-        extra_scale = round(scale / base_scale, 3)
 
-        base_surf = self.scaled_surfaces[surface_idx]
         # TODO: Make use of the rotation origin
-        # return IM.rotozoom(base_surf, angle, extra_scale)
-        IM.draw_texture(base_surf, position, extra_scale, angle)
+        IM.draw_texture(self.img, position, scale / 8, angle)
 
     @classmethod
     def _load(cls, file: IO[bytes] | None, name: str, md5: str, origin: Sequence[float]) -> SvgCostume:
         if file is None:
-            return cls(name, None, cast(tuple[float, float], origin), [IM.load_texture(io.BytesIO(WHITE_1x1)) for _ in cls.SVG_SCALES])
+            return cls(name, None, cast(tuple[float, float], origin), IM.load_texture(io.BytesIO(WHITE_1x1)))
 
-        scaled_surfaces: list[IM.Texture | None] = []
-        data = file.read()
-        img = pyvips.Image.new_from_buffer(data, "", dpi=int(72 * SCALE))
-        for scale in cls.SVG_SCALES:
-            scaled_surfaces.append(IM.load_texture(io.BytesIO(img.copy().resize(scale / SCALE).write_to_buffer(".png"))))
-        return cls(name, md5, cast(tuple[float, float], origin), cast(list[IM.Texture], scaled_surfaces))
+        img = pyvips.Image.new_from_buffer(file.read(), "", dpi=int(72 * SCALE))
+        img = IM.load_texture(io.BytesIO(img.write_to_buffer(".png")))
+        return cls(name, md5, cast(tuple[float, float], origin), img)
