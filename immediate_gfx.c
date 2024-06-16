@@ -14,6 +14,7 @@
 #include <SDL2/SDL_image.h>
 
 #define MAX_KEY_EVENTS_PER_FRAME 32
+#define MAX_INPUT_LENGTH 4096
 
 const struct { int sym; const char *name; } KEYCODE_TO_NAME[] = {
     { SDLK_q, "q" }, { SDLK_w, "w" }, { SDLK_e, "e" }, { SDLK_r, "r" }, { SDLK_t, "t" }, { SDLK_y, "y" }, { SDLK_u, "u" }, { SDLK_i, "i" }, { SDLK_o, "o" },
@@ -21,6 +22,7 @@ const struct { int sym; const char *name; } KEYCODE_TO_NAME[] = {
     { SDLK_l, "l" }, { SDLK_z, "z" }, { SDLK_x, "x" }, { SDLK_c, "c" }, { SDLK_v, "v" }, { SDLK_b, "b" }, { SDLK_n, "n" }, { SDLK_m, "m" }, { SDLK_1, "1" },
     { SDLK_2, "2" }, { SDLK_3, "3" }, { SDLK_4, "4" }, { SDLK_5, "5" }, { SDLK_6, "6" }, { SDLK_7, "7" }, { SDLK_8, "8" }, { SDLK_9, "9" }, { SDLK_0, "0" },
     { SDLK_SPACE, "space" }, { SDLK_LEFT, "left arrow" }, { SDLK_RIGHT, "right arrow" }, { SDLK_UP, "up arrow" }, { SDLK_DOWN, "down arrow" },
+    { SDLK_BACKSPACE, "backspace" }, { SDLK_RETURN, "enter" }, { SDLK_DELETE, "delete" },
     { SDLK_UNKNOWN, NULL }
 };
 
@@ -46,9 +48,9 @@ void im_init(void)
         if (!bubble_font)
             abort();
     }
-    // input_font = TTF_OpenFont("calibril.ttf", 12);
-    // if (!input_font)
-        // abort();
+    input_font = TTF_OpenFont("calibril.ttf", 12);
+    if (!input_font)
+        abort();
 }
 
 void im_quit(void)
@@ -254,6 +256,15 @@ void im_stop(void)
 int im_running(void)
 {
     return window_running;
+}
+
+void im_draw_line(unsigned r, unsigned g, unsigned b, int x1, int y1, int x2, int y2, int sw)
+{
+    SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+    double length = sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1));
+    double xd = (y2-y1) / length, yd = -(x2-x1) / length;
+    for (int i = -sw / 2; i < sw - (-sw / 2); ++i)
+        SDL_RenderDrawLine(renderer, (int)(x1 + xd * i), (int)(y1 + yd * i), (int)(x2 + xd * i), (int)(y2 + yd * i));
 }
 
 void im_draw_rect_fill(unsigned r, unsigned g, unsigned b, int x, int y, int w, int h, int bw)
@@ -478,4 +489,112 @@ uint8_t *im_empty_mask(int width, int height, int dft)
         abort();
     memset(mask, dft ? 255 : 0, width * height / 8 + 1);
     return mask;
+}
+
+// TODO: Use TEXTINPUT it does everything for you (right now you don't have shift etc)
+struct im_text_input_state *im_draw_question_box(struct im_text_input_state *state)
+{
+    if (!state) {
+        state = calloc(sizeof *state, 1);
+        state->text = calloc(MAX_INPUT_LENGTH + 1, 1);
+        state->closed = 0;
+        state->cursor_location = 0;
+    }
+
+    int mousex;
+    int mousey; // that's me!
+    int pressed = SDL_GetMouseState(&mousex, &mousey) & SDL_BUTTON(1);
+    
+    if (pressed && mousex >= 27 && mousex <= 328 && mousey >= 428 && mousey <= 460) {
+        // User clicked on the editable area
+        state->cursor_location = 0;
+        clock_gettime(CLOCK_MONOTONIC, &state->edit_start);
+    }
+
+    if (state->cursor_location != -1) {
+        for (unsigned i = 0; i < n_key_events; ++i) {
+            clock_gettime(CLOCK_MONOTONIC, &state->edit_start);
+            if ((!key_events[i].keyname) || (!key_events[i].held))
+                continue;
+            if (key_events[i].keyname[1]) {
+                if (strcmp(key_events[i].keyname, "backspace") == 0) {
+                    if (state->cursor_location > 0) {
+                        int len = state->cursor_location < 1 ? 0 : state->cursor_location - 1;
+                        memmove(state->text + len, state->text + state->cursor_location, strlen(state->text) - state->cursor_location + 1);
+                        --state->cursor_location;
+                    }
+
+                } else if (strcmp(key_events[i].keyname, "delete") == 0) {
+                    int len = state->cursor_location;
+                    if (state->text[len])
+                        memmove(state->text + len, state->text + state->cursor_location + 1, strlen(state->text) - state->cursor_location);
+                
+                } else if (strcmp(key_events[i].keyname, "left arrow") == 0) {
+                    if (state->cursor_location > 0)
+                        --state->cursor_location;
+                
+                } else if (strcmp(key_events[i].keyname, "right arrow") == 0) {
+                    if (state->cursor_location < (int)strlen(state->text))
+                        ++state->cursor_location;
+                
+                } else if (strcmp(key_events[i].keyname, "enter") == 0) {
+                    state->closed = 1;
+
+                } else if (strcmp(key_events[i].keyname, "space") == 0) {
+                    if (strlen(state->text) < MAX_INPUT_LENGTH) {
+                        memmove(state->text + state->cursor_location + 1, state->text + state->cursor_location, strlen(state->text) - state->cursor_location + 1);
+                        state->text[state->cursor_location++] = ' ';
+                    }
+                }
+            } else {
+                if (strlen(state->text) < MAX_INPUT_LENGTH) {
+                    memmove(state->text + state->cursor_location + 1, state->text + state->cursor_location, strlen(state->text) - state->cursor_location + 1);
+                    state->text[state->cursor_location++] = key_events[i].keyname[0];
+                }
+            }
+        }
+    }
+
+    im_draw_rect_fill(255, 255, 255, 7, 284, 468, 66, 10);
+    im_draw_rect_stroke(210, 210, 210, 7, 284, 468, 66, 2, 10);
+
+    im_draw_rect_fill(255, 255, 255, 27, 301, 428, 32, 15);
+    im_draw_rect_stroke(210, 210, 210, 27, 301, 428, 32, 1, 15);
+
+    im_draw_circle_fill(135, 80, 195, 438, 317, 13, 1, 1, 1, 1);
+
+    im_draw_line(255, 255, 255, 432, 322, 429, 318, 5);
+    im_draw_line(255, 255, 255, 433, 322, 441, 314, 5);
+    im_draw_circle_fill(255, 255, 255, 429, 318, 2, 1, 1, 1, 1);
+    im_draw_circle_fill(255, 255, 255, 433, 323, 2, 1, 1, 1, 1);
+
+    im_draw_circle_fill(255, 255, 255, 442, 314, 2, 1, 1, 1, 1);
+
+    if (state->text[0] != 0) {
+        SDL_Surface *surf = TTF_RenderUTF8_Blended(input_font, state->text, (SDL_Color){ 50, 50, 50, 255 });
+        if (!surf)
+            abort();
+        SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surf);
+        if (!tex)
+            abort();
+        SDL_Rect dst = { 38, 311, surf->w, surf->h };
+        SDL_FreeSurface(surf);
+        SDL_RenderCopy(renderer, tex, NULL, &dst);
+        SDL_DestroyTexture(tex);
+    }
+
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (state->cursor_location != -1 && (now.tv_sec - state->edit_start.tv_sec) % 2 == 0) {
+        // font.size(state.text[:state.cursor_location])[0]
+        char c = state->text[state->cursor_location];
+        state->text[state->cursor_location] = 0;
+        int w, h;
+        if (TTF_SizeUTF8(input_font, state->text, &w, &h))
+            abort();
+        state->text[state->cursor_location] = c;
+        im_draw_line(0, 0, 0, 38 + w, 311, 38 + w, 321, 1);
+    }
+
+    return state;
 }

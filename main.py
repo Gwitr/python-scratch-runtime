@@ -25,7 +25,7 @@ def main() -> None:
     IM.init()
     IM.set_context(480, 360, 30)
 
-    with zipfile.PyZipFile("Project(5).sb3") as sb3:  # test.sb3
+    with zipfile.PyZipFile("test.sb3") as sb3:  # test.sb3
         project = Project.load(sb3)
 
     scripts: dict[type[BlockEvent], list[tuple[BlockEvent, BlockList]]] = {
@@ -82,7 +82,7 @@ def main() -> None:
             target.draw()
 
         if project.show_question:
-            qbox_state = IM.draw_question_box(qbox_state, info)
+            qbox_state = IM.draw_question_box(qbox_state)
             if qbox_state.closed:
                 project.sensing_answer = qbox_state.text
                 project.show_question = False

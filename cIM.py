@@ -74,6 +74,35 @@ _IM.im_tex_to_mask.restype = ctypes.POINTER(ctypes.c_uint64)
 _IM.im_empty_mask.argtypes = (ctypes.c_int, ctypes.c_int)
 _IM.im_empty_mask.restype = ctypes.POINTER(ctypes.c_uint64)
 
+class timespec(ctypes.Structure):
+    _fields_ = (
+        ("tv_sec", ctypes.c_time_t),
+        ("tv_nsec", ctypes.c_long)
+    )
+
+class im_text_input_state(ctypes.Structure):
+    _fields_ = (
+        ("text", ctypes.c_char_p),
+        ("cursor_location", ctypes.c_int),
+        ("edit_start", timespec),
+        ("closed", ctypes.c_int)
+    )
+
+class TextInputState:
+    struct: ctypes.POINTER(im_text_input_state)
+
+    def __init__(self, struct):
+        self.struct = struct
+
+    def __getattr__(self, key):
+        return getattr(self.struct.contents, key)
+
+    def __del__(self):
+        libc.free(self.struct)
+
+_IM.im_draw_question_box.argtypes = (ctypes.POINTER(im_text_input_state),)
+_IM.im_draw_question_box.restype = ctypes.POINTER(im_text_input_state)
+
 @dataclass(slots=True, frozen=True)
 class KeyEvent:
     key: str
@@ -209,3 +238,9 @@ def mainloop() -> Generator[FrameInfo, None, None]:
 # Scratch stuff
 def draw_thought_bubble(text: str, pos: Sequence[float]) -> None:
     _IM.im_draw_thought_bubble(text.encode("utf8"), int(pos[0]), int(pos[1]))
+
+def draw_question_box(state: TextInputState | None) -> TextInputState:
+    if state is None:
+        return TextInputState(_IM.im_draw_question_box(None))
+    _IM.im_draw_question_box(state.struct)
+    return state
