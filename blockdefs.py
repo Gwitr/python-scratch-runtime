@@ -9,8 +9,8 @@ from typing import Any, Generator, cast, TypeVar
 import cIM as IM
 from target import Target, Sprite
 from block import Block, BlockList
-from utils import StopAll, StopThisScript, ExtraEvents
 from value import VariableReference, Variable, ScratchValue, as_float
+from utils import StopAll, StopThisScript, WaitFrameSignal, PushScriptsSignal, BroadcastEvent, RegisterScriptsSignal, CloneCreatedEvent
 T = TypeVar("T")
 
 def non_optional(x: T | None) -> T:
@@ -84,7 +84,7 @@ def op_looks_thinkforsecs(sprite: Sprite, MESSAGE: str, SECS: float) -> Generato
     # TODO: Use an event instead of this
     sprite.bubble = MESSAGE
     for _ in range(int(IM.window_fps * SECS)):
-        yield []
+        yield WaitFrameSignal()
     sprite.bubble = None
 
 @Block.register_evaluator("looks_sayforsecs")
@@ -92,7 +92,7 @@ def op_looks_sayforsecs(sprite: Sprite, MESSAGE: str, SECS: float) -> Generator[
     # TODO: Use another type of bubble
     sprite.bubble = MESSAGE
     for _ in range(int(IM.window_fps * SECS)):
-        yield []
+        yield WaitFrameSignal()
     sprite.bubble = None
 
 @Block.register_evaluator("control_delete_this_clone")
@@ -112,7 +112,7 @@ def op_control_stop(_target: Target, *, STOP_OPTION: str) -> None:
 def op_control_forever(_target: Target, SUBSTACK: Block.Unevaluated[None]) -> Generator[Any, Any, None]:
     while True:
         yield from SUBSTACK()
-        yield []
+        yield WaitFrameSignal()
 
 @Block.register_evaluator("control_if")
 def op_control_if(_target: Target, CONDITION: bool, SUBSTACK: Block.Unevaluated[None]) -> Generator[Any, Any, None]:
@@ -123,13 +123,13 @@ def op_control_if(_target: Target, CONDITION: bool, SUBSTACK: Block.Unevaluated[
 def op_control_repeat_until(_target: Target, CONDITION: Block.Unevaluated[bool], SUBSTACK: Block.Unevaluated[None]) -> Generator[Any, Any, None]:
     while not bool((yield from CONDITION())):
         yield from SUBSTACK()
-        yield []
+        yield WaitFrameSignal()
 
 @Block.register_evaluator("control_wait")
 def op_control_wait(_target: Target, DURATION: float) -> Generator[Any, Any, None]:
     # TODO: Use an event instead of this
     for _ in range(int(IM.window_fps * DURATION)):
-        yield []
+        yield WaitFrameSignal()
 
 @Block.register_evaluator("control_create_clone_of")
 def op_control_create_clone_of(target: Target, CLONE_OPTION: str) -> None:
@@ -155,10 +155,12 @@ def op_control_create_clone_of(target: Target, CLONE_OPTION: str) -> None:
         to_clone.xpos, to_clone.ypos, to_clone.scale, to_clone.angle,
         to_clone.draggable, to_clone.rotation_style, to_clone.bubble
     ))
-    to_clone.project.targets[-1].is_clone = True
-    for blocklist in to_clone.project.targets[-1].blocks:
-        blocklist.set_target(to_clone.project.targets[-1])
-    ExtraEvents.queue.append({"type": ExtraEvents.EVENT_CLONE_SCRIPT_INSTANCES, "target": to_clone.project.targets[-1]})
+    clone = to_clone.project.targets[-1]
+    clone.is_clone = True
+    for blocklist in clone.blocks:
+        blocklist.set_target(clone)
+    yield RegisterScriptsSignal(clone)
+    yield PushScriptsSignal([CloneCreatedEvent(clone)])
     return None
 
 @Block.register_evaluator("control_create_clone_of_menu")
@@ -294,7 +296,7 @@ def op_sensing_askandwait(target: Target, QUESTION: str) -> Generator[Any, Any, 
     target.project.question = None
     target.project.show_question = True
     while target.project.show_question:
-        yield []
+        yield WaitFrameSignal()
     if isinstance(target, Sprite):
         target.bubble = None
 
@@ -304,4 +306,4 @@ def op_sensing_of_object_menu(_target: Target, *, OBJECT: str) -> str:
 
 @Block.register_evaluator("event_broadcast")
 def op_event_broadcast(_target: Target, BROADCAST_INPUT: str) -> None:
-    ExtraEvents.queue.append({"type": ExtraEvents.EVENT_BROADCAST, "id": BROADCAST_INPUT})
+    yield PushScriptsSignal([BroadcastEvent(BROADCAST_INPUT)])

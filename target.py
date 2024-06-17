@@ -10,6 +10,7 @@ import cIM as IM
 from sound import Sound
 from block import BlockList
 from costume import Costume
+from utils import BlockEvent
 from value import Variable, ScratchValue
 
 @dataclass(eq=False)
@@ -76,6 +77,10 @@ class Target(abc.ABC):
         for block_list in blocks:
             block_list.set_target(target)
         return target
+
+    def register_scripts(self, scripts: dict[type[BlockEvent], list[tuple[BlockEvent, BlockList]]]) -> None:
+        for block_list in self.blocks:
+            scripts[type(block_list.launch_event)].append((block_list.launch_event, block_list))
 
     def __eq__(self, other: object) -> bool:
         return id(self) == id(other)

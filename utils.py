@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Generator
 from dataclasses import dataclass
 
 @dataclass(frozen=True)
@@ -38,7 +38,14 @@ class StopAll(Stop):
 class StopThisScript(Stop):
     pass
 
-class ExtraEvents:
-    EVENT_CLONE_SCRIPT_INSTANCES = 0
-    EVENT_BROADCAST = 1
-    queue: list[dict] = []
+@dataclass(frozen=True, slots=True)
+class PushScriptsSignal:
+    scripts: list[BlockEvent | Generator[Any, Any, Any]]
+
+@dataclass(frozen=True, slots=True)
+class WaitFrameSignal:
+    pass
+
+@dataclass(frozen=True, slots=True)
+class RegisterScriptsSignal:
+    target: Any
